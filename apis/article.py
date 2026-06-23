@@ -522,6 +522,141 @@ async def get_articles(
             )
         )
 
+@router.get("/query", summary="查询文章列表（支持标签筛选，返回公众号标签信息）")
+async def query_articles_with_tags(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    status: str = Query(None, description="文章状态，多个用逗号分隔，如: 1,6"),
+    search: str = Query(None),
+    mp_id: str = Query(None, description="公众号ID筛选"),
+    tag_id: str = Query(None, description="公众号标签ID筛选"),
+    only_favorite: bool = Query(False),
+    has_content: bool = Query(None, description="是否有正文: true=有, false=无, 不传=全部"),
+    current_user: dict = Depends(get_current_user_or_ak)
+):
+    """
+    查询文章列表，支持按公众号ID和标签ID筛选，返回文章所属公众号的标签信息。
+    """
+    import json
+    from core.models.tags import Tags as TagsModel
+    from core.models.feed import Feed
+
+    session = DB.get_session()
+    try:
+        # 状态字符串到状态码的映射
+        status_map = {
+            'deleted': DATA_STATUS.DELETED,
+            'updating': DATA_STATUS.FETCHING,
+            'active': DATA_STATUS.ACTIVE,
+            'inactive': DATA_STATUS.INACTIVE,
+            'pending': DATA_STATUS.PENDING,
+            'completed': DATA_STATUS.COMPLETED,
+            'failed': DATA_STATUS.FAILED,
+        }
+
+        # 构建查询条件
+        query = session.query(ArticleBase)
+
+        # 状态筛选
+        if status:
+            status_list = [s.strip() for s in status.split(',') if s.strip()]
+            status_codes = [status_map.get(s) for s in status_list if status_map.get(s) is not None]
+            if status_codes:
+                query = query.filter(Article.status.in_(status_codes))
+            else:
+                query = query.filter(Article.status != DATA_STATUS.DELETED)
+        else:
+            query = query.filter(Article.status != DATA_STATUS.DELETED)
+
+        # 如果传入了 tag_id，先找出该标签关联的所有 mp_id
+        effective_mp_ids = None
+        if tag_id:
+            tag = session.query(TagsModel).filter(TagsModel.id == tag_id).first()
+            if not tag:
+                return success_response({"list": [], "total": 0})
+            # 解析 mps_id（JSON 格式的 mp_id 数组）
+            if tag.mps_id:
+                try:
+                    mp_id_list = json.loads(tag.mps_id) if isinstance(tag.mps_id, str) else tag.mps_id
+                    effective_mp_ids = set(mp_id_list)
+                except (json.JSONDecodeError, TypeError):
+                    effective_mp_ids = None
+            # 如果标签没有关联任何公众号，直接返回空
+            if effective_mp_ids is not None and len(effective_mp_ids) == 0:
+                return success_response({"list": [], "total": 0})
+
+        # mp_id 筛选（与 tag_id 取交集）
+        if mp_id:
+            if effective_mp_ids is not None:
+                if mp_id not in effective_mp_ids:
+                    return success_response({"list": [], "total": 0})
+                query = query.filter(Article.mp_id == mp_id)
+            else:
+                query = query.filter(Article.mp_id == mp_id)
+        elif effective_mp_ids is not None:
+            query = query.filter(Article.mp_id.in_(effective_mp_ids))
+
+        if only_favorite:
+            query = query.filter(Article.is_favorite == 1)
+        if has_content is not None:
+            query = query.filter(Article.has_content == (1 if has_content else 0))
+        if search:
+            query = query.filter(format_search_kw(search))
+
+        total = query.count()
+        results = query.order_by(Article.publish_time.desc()).offset(offset).limit(limit).all()
+
+        # 收集所有涉及的 mp_id
+        mp_ids_in_results = list(set(a.mp_id for a in results if a.mp_id))
+
+        # 批量查询公众号名称
+        mp_names = {}
+        for feed in session.query(Feed).filter(Feed.id.in_(mp_ids_in_results)).all():
+            mp_names[feed.id] = feed.mp_name
+
+        # 批量查询标签：找出所有标签，及其关联的 mp_id
+        all_tags = session.query(TagsModel).all()
+        # 构建 mp_id -> [tags] 的映射
+        mp_to_tags = {}
+        for tag in all_tags:
+            if tag.mps_id:
+                try:
+                    mp_id_list = json.loads(tag.mps_id) if isinstance(tag.mps_id, str) else tag.mps_id
+                    for mid in mp_id_list:
+                        if mid not in mp_to_tags:
+                            mp_to_tags[mid] = []
+                        mp_to_tags[mid].append({"id": tag.id, "name": tag.name})
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        # 组装结果
+        article_list = []
+        for article in results:
+            article_dict = article.__dict__.copy()
+            article_dict["mp_name"] = mp_names.get(article.mp_id, "未知公众号")
+            article_dict["is_favorite"] = int(getattr(article, "is_favorite", 0) or 0)
+            article_dict["has_content"] = int(getattr(article, "has_content", 0) or 0)
+            # 添加公众号标签信息
+            article_dict["mp_tag_ids"] = [t["id"] for t in mp_to_tags.get(article.mp_id, [])]
+            article_dict["mp_tag_names"] = [t["name"] for t in mp_to_tags.get(article.mp_id, [])]
+            article_list.append(article_dict)
+
+        return success_response({
+            "list": article_list,
+            "total": total
+        })
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(
+            status_code=fast_status.HTTP_406_NOT_ACCEPTABLE,
+            detail=error_response(
+                code=50001,
+                message=f"查询文章列表失败: {str(e)}"
+            )
+        )
+
+
 @router.post("/{article_id}/refresh", summary="刷新单篇文章")
 async def refresh_article(
     article_id: str,
