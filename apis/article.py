@@ -578,7 +578,8 @@ async def query_articles_with_tags(
             if tag.mps_id:
                 try:
                     mp_id_list = json.loads(tag.mps_id) if isinstance(tag.mps_id, str) else tag.mps_id
-                    effective_mp_ids = set(mp_id_list)
+                    # mps_id 格式为 [{"id": "mp_id"}, ...]
+                    effective_mp_ids = set(mp.get("id") if isinstance(mp, dict) else mp for mp in mp_id_list)
                 except (json.JSONDecodeError, TypeError):
                     effective_mp_ids = None
             # 如果标签没有关联任何公众号，直接返回空
