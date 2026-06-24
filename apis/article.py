@@ -614,7 +614,7 @@ async def query_articles_with_tags(
         for feed in session.query(Feed).filter(Feed.id.in_(mp_ids_in_results)).all():
             mp_names[feed.id] = feed.mp_name
 
-        # 批量查询标签：找出所有标签，及其关联的 mp_id
+        # 批量查询标签:找出所有标签,及其关联的 mp_id
         all_tags = session.query(TagsModel).all()
         # 构建 mp_id -> [tags] 的映射
         mp_to_tags = {}
@@ -622,10 +622,13 @@ async def query_articles_with_tags(
             if tag.mps_id:
                 try:
                     mp_id_list = json.loads(tag.mps_id) if isinstance(tag.mps_id, str) else tag.mps_id
-                    for mid in mp_id_list:
-                        if mid not in mp_to_tags:
-                            mp_to_tags[mid] = []
-                        mp_to_tags[mid].append({"id": tag.id, "name": tag.name})
+                    for mp in mp_id_list:
+                        # mps_id 格式为 [{"id": "mp_id"}, ...]
+                        mid = mp.get("id") if isinstance(mp, dict) else mp
+                        if mid:
+                            if mid not in mp_to_tags:
+                                mp_to_tags[mid] = []
+                            mp_to_tags[mid].append({"id": tag.id, "name": tag.name})
                 except (json.JSONDecodeError, TypeError):
                     pass
 

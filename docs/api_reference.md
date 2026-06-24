@@ -228,6 +228,121 @@ curl "http://192.168.100.230:8003/api/v1/wx/tags?offset=0&limit=10" \
 
 ---
 
+## 4. 查询文章列表（支持标签筛选，返回公众号标签信息）
+
+### 请求
+
+**`GET /articles/query`**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| offset | int | 否 | 0 | 偏移量 |
+| limit | int | 否 | 10 | 每页数量，最大 100 |
+| status | string | 否 | - | 文章状态，逗号分隔（如 `1,6`） |
+| search | string | 否 | - | 关键词搜索（标题/描述） |
+| mp_id | string | 否 | - | 按公众号ID筛选 |
+| tag_id | string | 否 | - | 按公众号标签ID筛选 |
+| only_favorite | bool | 否 | false | 仅返回收藏的文章 |
+| has_content | bool | 否 | - | 是否有正文（true=有，false=无，不传=全部） |
+
+### 响应
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "list": [
+      {
+        "id": "string",
+        "mp_id": "string",
+        "mp_name": "string",
+        "title": "string",
+        "pic_url": "string",
+        "url": "string",
+        "description": "string",
+        "status": 1,
+        "publish_time": 1781064670,
+        "is_read": 0,
+        "is_favorite": 0,
+        "has_content": 1,
+        "mp_tag_ids": ["tag_id_1", "tag_id_2"],
+        "mp_tag_names": ["标签A", "标签B"],
+        "created_at": "2026-06-10T12:14:02",
+        "updated_at": 1781064842,
+        "updated_at_millis": 1781064842661,
+        "publish_type": 0,
+        "publish_src": 1,
+        "publish_status": "200",
+        "publish_info": "string (JSON)",
+        "original_check_type": 0,
+        "in_profile": 0,
+        "pre_publish_status": 0,
+        "service_type": 0,
+        "show_type": 0,
+        "item_show_type": 0,
+        "copyright_stat": 0,
+        "has_red_packet_cover": 0,
+        "art_type": 0,
+        "extinfo": "string",
+        "create_time": 1781064670,
+        "fix_fail_count": 0,
+        "content": "string",
+        "content_html": "string"
+      }
+    ],
+    "total": 66
+  }
+}
+```
+
+### 字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | string | 文章唯一ID |
+| mp_id | string | 公众号ID |
+| mp_name | string | 公众号名称 |
+| title | string | 文章标题 |
+| pic_url | string | 封面图片URL |
+| url | string | 文章链接 |
+| description | string | 文章摘要 |
+| status | int | 1=正常, 6=抓取中, 1000=已删除 |
+| publish_time | int | 发布时间（Unix时间戳） |
+| is_read | int | 是否已读（0/1） |
+| is_favorite | int | 是否收藏（0/1） |
+| has_content | int | 是否有正文（0/1） |
+| **mp_tag_ids** | array | **公众号关联的标签ID列表（新增）** |
+| **mp_tag_names** | array | **公众号关联的标签名称列表（新增）** |
+
+### 筛选逻辑
+
+- 同时传 `tag_id` 和 `mp_id`：取交集（该公众号必须属于该标签）
+- 只传 `tag_id`：返回该标签下所有公众号的文章
+- 只传 `mp_id`：返回该公众号的所有文章
+
+### 示例
+
+```bash
+# 获取所有文章（带公众号标签信息）
+curl "http://192.168.100.230:8003/api/v1/wx/articles/query?offset=0&limit=10" \
+  -H "Authorization: AK-SK WKxxx:SKxxx"
+
+# 按标签筛选
+curl "http://192.168.100.230:8003/api/v1/wx/articles/query?tag_id=xxx&limit=10" \
+  -H "Authorization: AK-SK WKxxx:SKxxx"
+
+# 按公众号筛选
+curl "http://192.168.100.230:8003/api/v1/wx/articles/query?mp_id=MP_WXS_3236757533&limit=10" \
+  -H "Authorization: AK-SK WKxxx:SKxxx"
+
+# 按标签+公众号筛选（取交集）
+curl "http://192.168.100.230:8003/api/v1/wx/articles/query?tag_id=xxx&mp_id=MP_WXS_xxx&limit=10" \
+  -H "Authorization: AK-SK WKxxx:SKxxx"
+```
+
+---
+
 ## 通用错误响应
 
 ```json
